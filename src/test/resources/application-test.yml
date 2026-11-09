@@ -1,0 +1,20 @@
+# Test profile. The datasource is supplied by PostgresIntegrationTest (Testcontainers or TEST_DATABASE_URL);
+# JWT decoding is supplied by TestJwtConfig with a key pair generated per test run.
+spring:
+  datasource:
+    url: jdbc:postgresql://unused-placeholder/installfinish
+    username: unused
+    password: unused
+  main:
+    banner-mode: off
+
+installfinish:
+  security:
+    public-api-docs: true
+  cors:
+    allowed-origins: http://localhost:3000
+
+logging:
+  level:
+    root: WARN
+    com.installfinish: INFO

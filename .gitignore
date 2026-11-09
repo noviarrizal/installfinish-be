@@ -1,0 +1,24 @@
+# Build output
+target/
+!.mvn/wrapper/maven-wrapper.jar
+
+# Local secrets and generated keys — never commit
+.env
+.env.*
+!.env.example
+.local/
+*.pem
+*.key
+*.p12
+*.jks
+
+# Local document storage
+storage/
+
+# IDE / OS
+.idea/
+*.iml
+.vscode/
+.DS_Store
+Thumbs.db
+*.log

@@ -1,0 +1,27 @@
+# Production. Every value without a default is required; the application refuses to start without it.
+spring:
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          issuer-uri: ${JWT_ISSUER_URI}
+          audiences: ${JWT_AUDIENCE}
+
+server:
+  # Trust X-Forwarded-* only because production runs behind the platform's TLS-terminating proxy.
+  forward-headers-strategy: native
+
+springdoc:
+  api-docs:
+    enabled: ${API_DOCS_ENABLED:false}
+  swagger-ui:
+    enabled: false
+
+installfinish:
+  security:
+    public-api-docs: false
+
+logging:
+  structured:
+    format:
+      console: ecs
