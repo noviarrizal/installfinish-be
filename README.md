@@ -15,16 +15,17 @@ technical decisions are in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md). The o
 | Concern | Choice |
 |---|---|
 | Language / runtime | Java 21 (LTS) |
-| Framework | Spring Boot 3.5.x (Web MVC, Data JPA/Hibernate 6.6, Validation, Security, Actuator) |
+| Framework | Spring Boot 4.1.2 — Spring Framework 7.0, Spring Security 7.1, Hibernate 7.4, Jackson 3.1 (Web MVC, Data JPA, Validation, Security, Actuator) |
 | Build | Maven 3.9+ via the included wrapper (`./mvnw`) |
-| Database | PostgreSQL 17 (Neon in hosted environments), Flyway migrations |
+| Database | PostgreSQL 17 (Neon in hosted environments), Flyway 12 migrations |
 | Auth | OAuth2 resource server — JWT bearer tokens from an OIDC identity provider |
-| API docs | SpringDoc OpenAPI 2.8 (`/v3/api-docs`, Swagger UI locally) |
-| Tests | JUnit 5, Mockito, Spring Test/MockMvc, Testcontainers PostgreSQL |
+| API docs | SpringDoc OpenAPI 3.2.0 (`/v3/api-docs`, Swagger UI locally) |
+| Tests | JUnit 6, Mockito, Spring Test/MockMvc, Testcontainers 2 PostgreSQL |
 
 ## Prerequisites
 
-- **JDK 21 or newer** (the build targets Java 21 via `--release 21`; the enforcer plugin rejects older JDKs).
+- **JDK 21 or newer** (the build targets Java 21 via `--release 21`; the enforcer plugin rejects older JDKs). Java 21
+  is the supported runtime; the build and tests are verified on Temurin 21.
 - **Docker** (recommended) for the local database and for Testcontainers-based integration tests.
   Without Docker, use any disposable PostgreSQL 13+ instead (see *Running tests*).
 - `bash` and `openssl` for `scripts/dev-jwt.sh` (Git Bash works on Windows).
@@ -125,6 +126,24 @@ Integration tests (`*IntegrationTest`) run against real PostgreSQL, applying all
    **It must be disposable** — tests insert data, and the audit table cannot be cleaned.
 2. Otherwise, if Docker is available, Testcontainers starts `postgres:17-alpine`.
 3. Otherwise they are **skipped** (shown as skipped in the Maven summary, never as passed).
+
+Setting `INSTALLFINISH_REQUIRE_TESTCONTAINERS=true` allows only option 2: a set `TEST_DATABASE_URL` or a missing
+Docker daemon then fails the run instead of being used or skipped.
+
+### Continuous integration
+
+[`.github/workflows/backend-ci.yml`](.github/workflows/backend-ci.yml) runs on pull requests to `main` and on pushes
+to `main`, `chore/**`, `feature/**` and `fix/**`. It uses an Ubuntu 24.04 runner, Temurin 21 and a cached Maven
+repository, and runs `./mvnw --batch-mode --no-transfer-progress clean verify` with
+`INSTALLFINISH_REQUIRE_TESTCONTAINERS=true`, so integration tests always run on a Testcontainers `postgres:17-alpine`.
+The job then fails if:
+
+- the run does not report that Testcontainers was the PostgreSQL source;
+- any test failed, errored or was skipped;
+- fewer than `MIN_TEST_COUNT` tests ran;
+- any of the integration or security compatibility test classes did not run.
+
+It needs no secrets and only `contents: read`. Raise `MIN_TEST_COUNT` when you add tests.
 
 ## API documentation
 

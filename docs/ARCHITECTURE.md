@@ -34,10 +34,52 @@ case refers to its job by id only, so the case module does not depend on the job
 
 ## 2. Key decisions
 
-### 2.1 Spring Boot 3.5 (not 4.x)
-The brief mandates Spring Boot 3. 3.5.16 is the newest 3.x release. Note that the 3.5 line's open-source support
-window ended in mid-2026; plan a Boot 4 migration (Spring Framework 7, Jakarta EE 11, Hibernate 7, Jackson 3) as a
-dedicated piece of work rather than mixing it into feature work.
+### 2.1 Spring Boot 4.1 on Java 21
+The foundation started on Spring Boot 3.5.16, whose open-source support ended in mid-2026, and was then upgraded
+as its own piece of work to **Spring Boot 4.1.2** (Spring Framework 7.0, Spring Security 7.1, Hibernate 7.4,
+Jackson 3.1, Flyway 12, Tomcat 11, Testcontainers 2, JUnit 6) with **SpringDoc 3.2.0** (the line that supports
+Boot 4.1). Java 21 stays the baseline. Schema, migrations, endpoints, response contracts, authorization rules and
+tenant isolation did not change. These compatibility changes were made:
+
+- **Build:** Boot 4's modular starters (`spring-boot-starter-webmvc`, `-security-oauth2-resource-server`,
+  `-flyway`), each paired with its test starter (`-webmvc-test`, `-data-jpa-test`,
+  `-security-oauth2-resource-server-test`). Testcontainers 2 artifacts are `testcontainers-postgresql` and
+  `testcontainers-junit-jupiter`.
+- **Moved packages:** health types (`org.springframework.boot.health.*`), `PropertyReferenceException`
+  (`org.springframework.data.core`), the MVC test slice (`org.springframework.boot.webmvc.test.autoconfigure`),
+  `PostgreSQLContainer` (`org.testcontainers.postgresql`), and JSpecify `@Nullable`.
+- **Jackson 3:** `SecurityProblemHandler` writes through Boot's `JsonMapper` (`tools.jackson`). Date settings moved to
+  `spring.jackson.datatype.datetime.*`, so timestamps are still ISO-8601 strings. `sort-properties-alphabetically` is
+  set to `false` because Jackson 3 sorts by default, and that would have reordered every response body.
+- **Error page properties:** `server.error.*` became `spring.web.error.*`. The values did not change: no message,
+  stack trace or binding errors.
+- **Stricter JSON (accepted behaviour change):** Jackson 3 rejects content after the JSON document. A body like
+  `{...} x` used to be processed with the trailing part ignored, and now gets `400 BAD_REQUEST`.
+- **Protected resource metadata (protocol-compatibility hardening):** this was not an authentication bypass;
+  the document grants access to nothing. Spring Security 7's resource server always publishes an unauthenticated
+  RFC 9728 document at `/.well-known/oauth-protected-resource` and adds a `resource_metadata="…"` pointer to every
+  401 `WWW-Authenticate` challenge. Neither can be switched off through configuration. We have not chosen to publish
+  resource metadata, and the default document claims `tls_client_certificate_bound_access_tokens: true`, which we do
+  not support.
+  - `ProtectedResourceMetadataBlocker` answers that path and its sub-paths with the same `401` as before, for every
+    method and for authenticated callers too. Those callers used to get `403`, because the blocker runs before
+    authentication.
+  - The blocker is created in `SecurityConfig` and is deliberately not a bean. It sits once in the security chain,
+    after `CorsFilter` and before Spring's metadata filter, and is never also registered as a servlet container
+    filter. Tests assert both.
+  - `SecurityProblemHandler` removes the pointer from 401 challenges. The 403 handler never adds one.
+  - **Limitation:** the removal only drops a `resource_metadata` parameter in the *last* position, which is where
+    `BearerTokenAuthenticationEntryPoint` always puts it. That keeps any other parameter safe from rewriting. The
+    ordering is pinned by `SecurityProblemHandlerTest`. If a Spring Security release moves the parameter, the pointer
+    would stay in the header and the tests fail; nothing else is altered.
+  - Revisit this if an MCP-style or other client needs RFC 9728 discovery: publish a correct document then.
+- **DPoP:** Spring Security 7 accepts the `DPoP` authorization scheme. Tokens without a valid proof and a matching
+  `cnf` binding are rejected (`SecurityChainCompatibilityTest`). Our IdP does not issue DPoP-bound tokens today.
+- **Actuator JSON:** the actuator uses its own mapper, so key order inside `/actuator/health` responses differs. The
+  values are unchanged. `/api/v1/health` is unchanged.
+- **CORS `Vary` headers:** Spring Framework 7 adds `Vary: Origin, Access-Control-Request-*` only on paths that have a
+  CORS configuration. That means `/api/**` still gets them, while denied non-API paths such as `/actuator/**` no
+  longer do. Nothing there is served cross-origin.
 
 ### 2.2 Authentication: provider-agnostic OAuth2 resource server — **IdP choice still open**
 The blueprint does not name an identity provider, so the backend validates standard OIDC JWTs (`issuer-uri` +

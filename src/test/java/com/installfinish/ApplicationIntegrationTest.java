@@ -1,13 +1,18 @@
 package com.installfinish;
 
+import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.hasItem;
+import static org.hamcrest.Matchers.not;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.installfinish.security.Role;
 import com.installfinish.support.PostgresIntegrationTest;
 import com.installfinish.support.TestJwts;
+import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpHeaders;
@@ -51,6 +56,21 @@ class ApplicationIntegrationTest extends PostgresIntegrationTest {
         mockMvc.perform(get("/actuator/info")
                         .header(HttpHeaders.AUTHORIZATION, TestJwts.staff("admin", Role.SYSTEM_ADMIN)))
                 .andExpect(status().isOk());
+    }
+
+    /** Spring Security 7 would serve this publicly; the full application (all servlet filters) must not. */
+    @Test
+    void protectedResourceMetadataIsNotPublished() throws Exception {
+        String root = "/.well-known/oauth-protected-resource";
+        for (String path : List.of(root, root + "/api/v1")) {
+            mockMvc.perform(get(path))
+                    .andExpect(status().isUnauthorized())
+                    .andExpect(header().stringValues(HttpHeaders.WWW_AUTHENTICATE, "Bearer"))
+                    .andExpect(content().string(not(containsString("tls_client_certificate_bound_access_tokens"))));
+            mockMvc.perform(get(path).header(HttpHeaders.AUTHORIZATION, TestJwts.staff("admin", Role.SYSTEM_ADMIN)))
+                    .andExpect(status().isUnauthorized())
+                    .andExpect(jsonPath("$.resource").doesNotExist());
+        }
     }
 
     @Test

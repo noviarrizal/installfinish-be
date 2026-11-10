@@ -29,10 +29,15 @@ spring:
     clean-disabled: true
   jackson:
     time-zone: UTC
-    serialization:
-      write-dates-as-timestamps: false
+    # Jackson 3 moved date handling to DateTimeFeature (spring.jackson.datatype.datetime.*).
+    datatype:
+      datetime:
+        write-dates-as-timestamps: false
     deserialization:
       fail-on-unknown-properties: true
+    mapper:
+      # Jackson 3 sorts properties alphabetically by default; keep declaration order (unchanged API output).
+      sort-properties-alphabetically: false
   data:
     web:
       pageable:
@@ -41,14 +46,16 @@ spring:
   mvc:
     problemdetails:
       enabled: false # ApiExceptionHandler owns all error responses
+  web:
+    error:
+      # Fallback /error responses never expose internals (Spring Boot 4 moved these from server.error.*).
+      include-message: never
+      include-stacktrace: never
+      include-binding-errors: never
 
 server:
   port: ${PORT:8080}
   shutdown: graceful
-  error:
-    include-message: never
-    include-stacktrace: never
-    include-binding-errors: never
 
 management:
   endpoints:

@@ -1,0 +1,96 @@
+name: Backend CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main, "chore/**", "feature/**", "fix/**"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: backend-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Maven verify (Java 21, Testcontainers PostgreSQL)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      # Integration tests must run on Testcontainers: with this set, a TEST_DATABASE_URL fallback or a missing
+      # Docker daemon fails the build instead of being used or skipped (see PostgresIntegrationTest).
+      INSTALLFINISH_REQUIRE_TESTCONTAINERS: "true"
+      # Every test that existed when this gate was set; raise it when tests are added, never lower it.
+      MIN_TEST_COUNT: "81"
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Set up Temurin 21
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+
+      - name: Verify Docker is available and no external test database is configured
+        run: |
+          docker info --format 'Docker {{.ServerVersion}} ({{.OperatingSystem}})'
+          if [ -n "${TEST_DATABASE_URL:-}" ]; then
+            echo "::error::TEST_DATABASE_URL must not be set in CI; integration tests must use Testcontainers"
+            exit 1
+          fi
+
+      - name: Maven verify
+        run: |
+          set -o pipefail
+          java -version
+          ./mvnw --batch-mode --no-transfer-progress clean verify | tee maven.log
+
+      - name: Check tests ran on Testcontainers with nothing skipped
+        run: |
+          grep -F '[PostgresIntegrationTest] PostgreSQL source: Testcontainers postgres:17-alpine' maven.log
+          python3 - <<'EOF'
+          import glob, os, sys
+          import xml.etree.ElementTree as ET
+
+          totals = dict(tests=0, failures=0, errors=0, skipped=0)
+          per_class = {}
+          for path in glob.glob("target/surefire-reports/TEST-*.xml"):
+              suite = ET.parse(path).getroot()
+              per_class[suite.get("name")] = int(suite.get("tests"))
+              for key in totals:
+                  totals[key] += int(suite.get(key, 0))
+          print(totals)
+
+          problems = []
+          minimum = int(os.environ["MIN_TEST_COUNT"])
+          if totals["tests"] < minimum:
+              problems.append(f"only {totals['tests']} tests ran; expected at least {minimum}")
+          for key in ("failures", "errors", "skipped"):
+              if totals[key]:
+                  problems.append(f"{totals[key]} {key}")
+          for required in ("com.installfinish.ApplicationIntegrationTest",
+                           "com.installfinish.DatabaseSchemaIntegrationTest",
+                           "com.installfinish.TenantIsolationIntegrationTest",
+                           "com.installfinish.security.SecurityChainCompatibilityTest"):
+              if per_class.get(required, 0) == 0:
+                  problems.append(f"{required} did not run")
+          for problem in problems:
+              print(f"::error::{problem}")
+          sys.exit(1 if problems else 0)
+          EOF
+
+      - name: Upload test reports
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: surefire-reports
+          path: |
+            target/surefire-reports/
+            maven.log
+          if-no-files-found: ignore
+          retention-days: 14

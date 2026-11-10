@@ -1,14 +1,14 @@
 package com.installfinish.support;
 
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
+import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.DockerClientFactory;
-import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.postgresql.PostgreSQLContainer;
 
 /**
  * Base class for tests against a real PostgreSQL database, with Flyway migrations and Hibernate schema validation
@@ -21,6 +21,9 @@ import org.testcontainers.containers.PostgreSQLContainer;
  *   <li>a Testcontainers PostgreSQL 17 container, shared by all test classes in the run.</li>
  * </ol>
  * If neither is available the tests are disabled and reported as skipped, never as passed.
+ *
+ * <p>With {@code INSTALLFINISH_REQUIRE_TESTCONTAINERS=true} (set in CI) only the Testcontainers path is allowed: a set
+ * {@code TEST_DATABASE_URL} or an unavailable Docker daemon fails the run instead of falling back or skipping.
  */
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -29,8 +32,10 @@ import org.testcontainers.containers.PostgreSQLContainer;
 @ExtendWith(PostgresAvailableCondition.class)
 public abstract class PostgresIntegrationTest {
 
+    private static final boolean REQUIRE_TESTCONTAINERS =
+            Boolean.parseBoolean(System.getenv("INSTALLFINISH_REQUIRE_TESTCONTAINERS"));
     private static final String EXTERNAL_URL = System.getenv("TEST_DATABASE_URL");
-    private static final PostgreSQLContainer<?> CONTAINER = startContainerIfNeeded();
+    private static final PostgreSQLContainer CONTAINER = startContainerIfNeeded();
 
     static boolean databaseAvailable() {
         return EXTERNAL_URL != null || CONTAINER != null;
@@ -49,12 +54,26 @@ public abstract class PostgresIntegrationTest {
         }
     }
 
-    private static PostgreSQLContainer<?> startContainerIfNeeded() {
-        if (EXTERNAL_URL != null || !DockerClientFactory.instance().isDockerAvailable()) {
+    private static PostgreSQLContainer startContainerIfNeeded() {
+        if (REQUIRE_TESTCONTAINERS) {
+            if (EXTERNAL_URL != null) {
+                throw new IllegalStateException(
+                        "INSTALLFINISH_REQUIRE_TESTCONTAINERS is set, so TEST_DATABASE_URL must not be set");
+            }
+            if (!DockerClientFactory.instance().isDockerAvailable()) {
+                throw new IllegalStateException("INSTALLFINISH_REQUIRE_TESTCONTAINERS is set but Docker is not available");
+            }
+        }
+        if (EXTERNAL_URL != null) {
+            System.out.println("[PostgresIntegrationTest] PostgreSQL source: TEST_DATABASE_URL");
             return null;
         }
-        PostgreSQLContainer<?> container = new PostgreSQLContainer<>("postgres:17-alpine");
+        if (!DockerClientFactory.instance().isDockerAvailable()) {
+            return null;
+        }
+        PostgreSQLContainer container = new PostgreSQLContainer("postgres:17-alpine");
         container.start();
+        System.out.println("[PostgresIntegrationTest] PostgreSQL source: Testcontainers " + container.getDockerImageName());
         return container;
     }
 }
