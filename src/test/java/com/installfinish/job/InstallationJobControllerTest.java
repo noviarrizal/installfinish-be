@@ -23,9 +23,9 @@ import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
-import org.springframework.data.mapping.PropertyReferenceException;
-import org.springframework.data.util.TypeInformation;
+import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
+import org.springframework.data.core.PropertyReferenceException;
+import org.springframework.data.core.TypeInformation;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
@@ -122,6 +122,19 @@ class InstallationJobControllerTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(body))
                 .andExpect(status().isBadRequest());
+        verifyNoInteractions(installationJobService);
+    }
+
+    /** Jackson 3 rejects content after the JSON document (Jackson 2 silently ignored it). */
+    @Test
+    void trailingContentAfterTheJsonDocumentIsRejected() throws Exception {
+        mockMvc.perform(post("/api/v1/jobs")
+                        .header(HttpHeaders.AUTHORIZATION, OPERATOR)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(validBody(UUID.randomUUID()) + " {\"clientAccountId\": null}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("BAD_REQUEST"))
+                .andExpect(jsonPath("$.detail").value("Failed to read request"));
         verifyNoInteractions(installationJobService);
     }
 
